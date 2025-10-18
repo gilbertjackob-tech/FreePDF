@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero py-4 mb-3">
+  <div class="container text-center">
+    <h1 class="h3 fw-bold">Scanner</h1>
+    <p class="lead mb-3">Capture document pages. Tap the shutter to add to your scan session.</p>
+  </div>
+</section>
+
+<section class="container mb-5">
+  <div class="row">
+    <div class="col-lg-8">
+      <div class="card shadow-sm p-0">
+        <div class="position-relative" style="aspect-ratio:4/3; background:#000;">
+          <video id="scanner_video" autoplay playsinline class="w-100 h-100" style="object-fit:cover;"></video>
+          <canvas id="scanner_canvas" class="d-none"></canvas>
+
+          <div id="scanner_overlay" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-end justify-content-center p-3 pointer-events-none">
+            <div class="bg-black bg-opacity-50 text-white rounded px-3 py-2 pointer-events-auto" id="scanner_status">Ready</div>
+          </div>
+        </div>
+
+        <div class="card-body d-flex gap-2 align-items-center justify-content-center">
+          <button id="shutter_btn" class="btn btn-primary btn-lg">📸 Capture</button>
+          <button id="flip_btn" class="btn btn-outline-secondary">Flip</button>
+          <button id="done_btn" class="btn btn-outline-success">Finish & Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card shadow-sm p-3">
+        <h6>Captured Pages</h6>
+        <div id="scan_gallery" class="d-flex flex-column gap-2" style="max-height:60vh; overflow:auto;">
+          <!-- thumbnails added here by static/js/scanner.js -->
+        </div>
+
+        <div class="mt-3 d-flex gap-2">
+          <button id="clear_session" class="btn btn-sm btn-outline-danger">Clear</button>
+          <button id="export_pdf" class="btn btn-sm btn-primary">Export PDF</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Minimal wiring hooks (detailed behavior in static/js/scanner.js)
+  // scanner.js should expose: initScanner(videoEl, canvasEl, callbacks)
+  (function(){
+    const video = document.getElementById('scanner_video');
+    const canvas = document.getElementById('scanner_canvas');
+    window.scannerInit && window.scannerInit(video, canvas, {
+      onStatus: msg => document.getElementById('scanner_status').innerText = msg,
+      onGalleryUpdate: () => {},
+    });
+  })();
+</script>
+{% endblock %}

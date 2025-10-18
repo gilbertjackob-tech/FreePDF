@@ -1,0 +1,13 @@
+Flask>=2.2.0
+Werkzeug>=2.2.0
+Jinja2>=3.0
+Pillow>=9.0
+PyPDF2>=3.0
+python-docx>=0.8.11
+pytest>=7.0
+python-magic; platform_system != 'Windows'
+opencv-python; platform_system == 'Windows'
+flask-wtf
+
+# Optional dev tools
+ipython

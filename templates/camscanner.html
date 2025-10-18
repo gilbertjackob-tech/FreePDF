@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero py-4 mb-3">
+  <div class="container text-center">
+    <h1 class="h3 fw-bold">CamScanner</h1>
+    <p class="lead mb-3">Scan documents with your camera, fix perspective and save as PDF.</p>
+    <div class="d-flex justify-content-center gap-2 flex-wrap">
+      <a class="btn btn-primary" href="{{ url_for('camscanner_scan') }}">Open Scanner</a>
+      <a class="btn btn-outline-primary" href="{{ url_for('camscanner_id') }}">ID Scan (Pro)</a>
+    </div>
+  </div>
+</section>
+
+<section class="container mb-5">
+  <div class="row g-3">
+    <div class="col-md-6-preview">
+      <div class="card shadow-sm p-3">
+        <h5 class="mb-1">Quick Scan</h5>
+        <p class="lead mb-3">Open the camera, take multiple shots, crop and save them into a PDF.</p>
+        <a href="{{ url_for('camscanner_scan') }}" class="stretched-link"></a>
+      </div>
+    </div>
+
+    <div class="col-md-6-preview">
+      <div class="card shadow-sm p-3">
+        <h5 class="mb-1">ID Capture (Pro flow)</h5>
+        <p class="lead mb-3">Capture identification documents with special framing and quality checks.</p>
+        <a href="{{ url_for('camscanner_id') }}" class="stretched-link"></a>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,117 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero py-4 mb-3">
+  <div class="container text-center">
+    <h1 class="h3 fw-bold">PDF → DOCX</h1>
+    <p class="lead mb-3">Convert a PDF into an editable Word document (best-effort).</p>
+  </div>
+</section>
+
+<section class="container mb-5">
+  <div class="row justify-content-center">
+    <div class="col-md-6-preview">
+      <div class="card shadow-sm p-3">
+        <label class="form-label">Upload PDF</label>
+        <input type="file" id="pdf_to_docx_input" accept="application/pdf" class="form-control" aria-label="Upload PDF to convert">
+        <div id="pdf_to_docx_hint" class="file-hint">No file selected</div>
+        <div class="mt-3">
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="show_advanced">
+            <label class="form-check-label text-danger" for="show_advanced">Show advanced (Not Recommended)</label>
+          </div>
+
+          <div id="advanced_controls" style="display:none">
+            <div class="row g-2 align-items-center">
+              <div class="col-auto">
+                <label class="form-label small mb-0">Fragment threshold <span class="info-icon" title="Lower → full-page image sooner. Higher → keep separate images" aria-label="Fragment threshold info" tabindex="0" style="display:inline-block;width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;background:#6c757d;color:#fff;font-size:12px;margin-left:6px;cursor:help;">i</span></label>
+                <input id="frag_threshold" class="form-control form-control-sm" type="number" min="1" value="8" />
+                <div class="form-text text-muted small">Lower = fewer thin artifact strips (more pages become images). Higher = preserves separate images.</div>
+              </div>
+              <div class="col-auto">
+                <label class="form-label small mb-0">Mask sensitivity (%) <span class="info-icon" title="Higher = skip dark/faint artifacts. Lower = keep faint images" aria-label="Mask sensitivity info" tabindex="0" style="display:inline-block;width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;background:#6c757d;color:#fff;font-size:12px;margin-left:6px;cursor:help;">i</span></label>
+                <input id="non_black_pct" class="form-control form-control-sm" type="number" step="0.001" min="0" max="1" value="0.02" />
+                <div class="form-text text-muted small">Raise to ignore near-black/empty fragments. Lower to keep faint content.</div>
+              </div>
+              <div class="col-auto">
+                <label class="form-label small mb-0">Variance sensitivity <span class="info-icon" title="Lower = skip low-detail images. Higher = keep low-detail images" aria-label="Variance sensitivity info" tabindex="0" style="display:inline-block;width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;background:#6c757d;color:#fff;font-size:12px;margin-left:6px;cursor:help;">i</span></label>
+                <input id="stdev_thresh" class="form-control form-control-sm" type="number" step="0.1" min="0" value="2.5" />
+                <div class="form-text text-muted small">Lower = skip near-solid/flat images. Higher = keep low-contrast images.</div>
+              </div>
+            </div>
+            <div id="adv_warning" class="small text-danger mt-2" style="display:none">Change these parameters wisely</div>
+          </div>
+
+          <div class="mt-2">
+            <button id="convert_pdf_docx" class="btn btn-primary">Convert</button>
+          </div>
+        </div>
+        <div id="pdf2docx_progress_wrap" style="display:none" class="mt-3">
+          <div class="merge-progress-bar"><div id="pdf2docx_progress_fill" class="merge-progress-fill" style="width:0%"></div></div>
+          <div class="small text-muted mt-1" id="pdf2docx_progress_text">Preparing...</div>
+        </div>
+        
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+// no stored source file id when force-rerun functionality is removed
+// no rerun/force-ocr functionality in this simplified build
+
+document.getElementById('pdf_to_docx_input').addEventListener('change', e => {
+  const f = e.target.files?.[0];
+  const hint = document.getElementById('pdf_to_docx_hint');
+  hint.textContent = f ? `${f.name} • ${window.pdfpro.formatBytes(f.size)}` : 'No file selected';
+});
+
+// toggle advanced parameter controls
+document.getElementById('show_advanced').addEventListener('change', e => {
+  const adv = document.getElementById('advanced_controls');
+  const warn = document.getElementById('adv_warning');
+  if(e.target.checked){ adv.style.display='block'; warn.style.display='block'; } else { adv.style.display='none'; warn.style.display='none'; }
+});
+
+document.getElementById('convert_pdf_docx').addEventListener('click', async () => {
+  const f = document.getElementById('pdf_to_docx_input').files?.[0];
+  if(!f){ window.pdfpro.showMessage('Select a PDF', 'error'); return; }
+  const fd = new FormData(); fd.append('pdf', f);
+  // collect threshold settings from the UI and send them as form fields
+  const frag = parseInt(document.getElementById('frag_threshold').value || '8', 10);
+  const nb = parseFloat(document.getElementById('non_black_pct').value || '0.02');
+  const st = parseFloat(document.getElementById('stdev_thresh').value || '2.5');
+  fd.append('fragment_threshold', String(frag));
+  fd.append('non_black_pct', String(nb));
+  fd.append('stdev_thresh', String(st));
+  const btn = document.getElementById('convert_pdf_docx');
+  try{
+    const wrap = document.getElementById('pdf2docx_progress_wrap'); const fill = document.getElementById('pdf2docx_progress_fill'); const text = document.getElementById('pdf2docx_progress_text');
+    wrap.style.display='block'; fill.style.width='0%'; text.textContent='Uploading...'
+    const res = await uploadWithProgress('/pdf-to-docx', fd, (loaded,total)=>{ if(total){ const pct=Math.round((loaded/total)*100); fill.style.width=pct+'%'; text.textContent=`Uploading... ${pct}%`} else { fill.style.width='40%'; text.textContent='Uploading...' } })
+    fill.style.width='100%'; text.textContent='Processing...'
+    const blob = await res.blob();
+    // read diagnostic headers and show a short summary
+    try{
+      const backend = res.headers.get('X-PDF2DOCX-Backend');
+      const per = res.headers.get('X-PDF2DOCX-PerPage');
+      let perArr = [];
+      try{ perArr = per ? JSON.parse(per) : [] }catch(e){}
+      const summary = backend + (perArr.length?(' — pages: '+perArr.join(',')):"");
+      window.pdfpro.showMessage('Conversion finished: '+summary, 'info');
+    }catch(e){}
+    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'converted.docx'; document.body.appendChild(a); a.click(); a.remove();
+  }catch(err){ console.error(err); }
+  finally{ setTimeout(()=>{ try{ document.getElementById('pdf2docx_progress_wrap').style.display='none'; document.getElementById('pdf2docx_progress_fill').style.width='0%'}catch(e){} },800) }
+});
+
+function uploadWithProgress(url, formData, onProgress){
+  return new Promise((resolve,reject)=>{
+    const xhr = new XMLHttpRequest(); xhr.open('POST', url, true); xhr.responseType = 'blob';
+    xhr.upload.onprogress = function(e){ if(onProgress) onProgress(e.loaded, e.total) }
+    xhr.onload = function(){ if(xhr.status>=200 && xhr.status<300){ const headers = new Headers(); try{ xhr.getAllResponseHeaders().trim().split(/\r?\n/).forEach(line=>{ const idx = line.indexOf(':'); if(idx>0) headers.append(line.slice(0,idx).trim(), line.slice(idx+1).trim()) }) }catch(e){} const res = new Response(xhr.response, { status: xhr.status, statusText: xhr.statusText, headers }); resolve(res) } else reject(new Error('Upload failed: '+xhr.status)) }
+    xhr.onerror = function(){ reject(new Error('Network error')) }
+    xhr.send(formData)
+  })
+}
+</script>
+{% endblock %}

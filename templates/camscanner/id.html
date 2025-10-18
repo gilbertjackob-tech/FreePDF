@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero py-4 mb-3">
+  <div class="container text-center">
+    <h1 class="h3 fw-bold">ID Capture</h1>
+    <p class="lead mb-3">Follow the overlay and capture both sides of the ID. The pro flow will validate quality.</p>
+  </div>
+</section>
+
+<section class="container mb-5">
+  <div class="row">
+    <div class="col-md-7">
+      <div class="card shadow-sm">
+        <div class="position-relative" style="aspect-ratio:4/3; background:#000;">
+          <video id="id_video" autoplay playsinline class="w-100 h-100" style="object-fit:cover"></video>
+          <div id="id_overlay" class="position-absolute top-0 start-0 w-100 h-100">
+            <!-- simple centered frame -->
+            <div class="position-absolute top-50 start-50 translate-middle border border-light rounded" style="width:70%; height:45%; pointer-events:none;"></div>
+          </div>
+        </div>
+        <div class="card-body d-flex gap-2 justify-content-center">
+          <button id="id_capture_btn" class="btn btn-primary">Capture ID</button>
+          <button id="id_flip" class="btn btn-outline-secondary">Flip Camera</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-5">
+      <div class="card shadow-sm p-3">
+        <h6>Captured</h6>
+        <div id="id_captures" class="d-flex flex-column gap-2"></div>
+        <div class="mt-3 d-flex gap-2">
+          <button id="id_retake" class="btn btn-outline-secondary btn-sm">Retake</button>
+          <button id="id_finish" class="btn btn-primary btn-sm">Finish</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Wiring placeholder for camscanner ID flow
+  (function(){
+    const video = document.getElementById('id_video');
+    const callbacks = {
+      onQuality: q => { /* show quality */ },
+      onCapture: blobUrl => {
+        const d = document.createElement('div');
+        d.innerHTML = `<img src="${blobUrl}" class="img-fluid border"/>`;
+        document.getElementById('id_captures').appendChild(d);
+      }
+    };
+    window.idScannerInit && window.idScannerInit(video, callbacks);
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,186 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero py-4 mb-3">
+  <div class="container text-center">
+    <h1 class="h3 fw-bold">Merge PDFs</h1>
+    <p class="lead mb-3">Upload multiple PDFs and reorder them visually before merging.</p>
+    <p> Drag to reorder, then click Merge.</p>
+  </div>
+</section>
+
+<section class="container mb-5">
+  <div class="row">
+    <div class="col-lg-6">
+      <div class="card p-3 shadow-sm">
+  <label class="form-label">Select PDFs</label>
+  <input type="file" id="merge_files" accept="application/pdf" multiple class="form-control">
+  <div id="merge_files_hint" class="file-hint">No files selected</div>
+    <div id="merge_list" class="mt-3 list-group"></div>
+    <button id="merge_add_fab" class="add-more-fab" title="Add files">+</button>
+        <div class="mt-3 d-flex gap-2">
+          <button id="merge_do" class="btn btn-primary">Merge</button>
+          <button id="merge_clear" class="btn btn-outline-secondary">Clear</button>
+        </div>
+            <div id="merge_progress_wrap" class="mt-3" style="display:none">
+              <div class="merge-progress-bar" id="merge_progress_bar">
+                <div class="merge-progress-fill" id="merge_progress_fill" style="width:0%"></div>
+              </div>
+              <div class="small text-muted mt-1" id="merge_progress_text">Preparing...</div>
+            </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+(function(){
+  let files = [];
+  const fileInput = document.getElementById('merge_files');
+  const list = document.getElementById('merge_list');
+  const addFab = document.getElementById('merge_add_fab');
+
+  // change handler supports appending when fileInput._append === true
+  fileInput.addEventListener('change', e => {
+    const incoming = Array.from(e.target.files || [])
+    if(fileInput._append){ files = files.concat(incoming); fileInput._append = false }
+    else { files = incoming }
+    const hint = document.getElementById('merge_files_hint');
+    const total = files.reduce((s,f)=>s+(f.size||0),0);
+    hint.textContent = files.length ? `${files.length} files • ${window.pdfpro.formatBytes(total)}` : 'No files selected';
+    renderList();
+    // reset input so same-file reselects trigger change
+    fileInput.value = ''
+  });
+
+  function renderList(){
+    list.innerHTML = '';
+    // render each file with a small first-page thumbnail and name
+    files.forEach((f,i) => {
+      const li = document.createElement('div');
+      li.className = 'list-group-item d-flex align-items-center gap-3';
+      li.draggable = true;
+      li.dataset.index = i;
+      li.innerHTML = `<div style="width:110px;height:140px;flex:0 0 110px;background:var(--muted-bg);border-radius:8px;overflow:hidden"><img class="merge-thumb" style="width:100%;height:100%;object-fit:cover;display:block"></div><div class="flex-fill"><div class="fw-semibold text-truncate" style="max-width:320px">${f.name}</div><div class="small text-muted">${window.pdfpro.formatBytes(f.size||0)}</div></div><div class="btn-group btn-group-sm ms-auto"><button class="btn btn-outline-secondary up">↑</button><button class="btn btn-outline-secondary down">↓</button></div>`;
+      list.appendChild(li);
+      // asynchronously generate thumbnail for this file and set img src
+      (async ()=>{
+        try{
+          const fd = new FormData(); fd.append('pdf', f)
+          const res = await fetch('/thumbnails', { method: 'POST', body: fd })
+          if(res.ok){ const json = await res.json(); const url = (json.thumbs && json.thumbs[0]) || '';
+            const img = li.querySelector('img.merge-thumb'); if(img && url) img.src = url
+          }
+        }catch(e){/* ignore thumbnail error */}
+      })();
+    });
+    attachDragHandlers();
+    attachMoveButtons();
+  }
+
+  function attachMoveButtons(){
+    list.querySelectorAll('.up').forEach(b => b.addEventListener('click', () => {
+      const i = parseInt(b.closest('[data-index]').dataset.index,10);
+      if(i<=0) return;
+      [files[i-1], files[i]] = [files[i], files[i-1]];
+      renderList();
+    }));
+    list.querySelectorAll('.down').forEach(b => b.addEventListener('click', () => {
+      const i = parseInt(b.closest('[data-index]').dataset.index,10);
+      if(i>=files.length-1) return;
+      [files[i+1], files[i]] = [files[i], files[i+1]];
+      renderList();
+    }));
+  }
+
+  function attachDragHandlers(){
+    let dragged = null;
+    list.querySelectorAll('.list-group-item').forEach(item => {
+      item.addEventListener('dragstart', () => dragged = item);
+      item.addEventListener('dragover', e => e.preventDefault());
+      item.addEventListener('drop', () => {
+        if(!dragged || dragged === item) return;
+        const from = parseInt(dragged.dataset.index,10);
+        const to = parseInt(item.dataset.index,10);
+        const moved = files.splice(from,1)[0];
+        files.splice(to,0,moved);
+        renderList();
+      });
+    });
+  }
+
+  document.getElementById('merge_do').addEventListener('click', async () => {
+    if(files.length === 0) { alert('Add files first'); return; }
+    const fd = new FormData(); files.forEach(f => fd.append('files', f));
+    const btn = document.getElementById('merge_do');
+    // show progress UI
+    const wrap = document.getElementById('merge_progress_wrap');
+    const fill = document.getElementById('merge_progress_fill');
+    const text = document.getElementById('merge_progress_text');
+    wrap.style.display = 'block'; fill.style.width = '0%'; text.textContent = 'Uploading...';
+
+    try{
+      const res = await uploadWithProgress('/merge', fd, (loaded, total)=>{
+        if(total) {
+          const pct = Math.round((loaded/total)*100);
+          fill.style.width = pct + '%'; text.textContent = `Uploading... ${pct}%`;
+        } else {
+          // unknown total, show indeterminate style
+          fill.style.width = '40%'; text.textContent = 'Uploading...';
+        }
+      })
+
+      // after upload completes, show processing
+      fill.style.width = '100%'; text.textContent = 'Processing...';
+      // read blob response
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'merged.pdf'; document.body.appendChild(a); a.click(); a.remove();
+      // show backend/time from response headers when available
+      try{
+        const backend = res.headers.get('X-Merge-Backend') || res.headers.get('x-merge-backend')
+        const t = res.headers.get('X-Merge-Time') || res.headers.get('x-merge-time')
+        if(backend || t) window.pdfpro.showMessage(`Merged with ${backend||'unknown'} in ${t||'?' }s`, 'success', 5000)
+      }catch(e){}
+    }catch(err){ console.error(err); window.pdfpro.showMessage('Merge failed', 'error', 5000) }
+    finally{ setTimeout(()=>{ wrap.style.display = 'none'; fill.style.width = '0%' }, 800) }
+  });
+
+  // helper to upload FormData with progress callback
+  function uploadWithProgress(url, formData, onProgress){
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      xhr.responseType = 'blob';
+      xhr.upload.onprogress = function(e){ if(onProgress) onProgress(e.loaded, e.total) }
+      xhr.onload = function(){
+        if(xhr.status >= 200 && xhr.status < 300){
+          // create a fake Response so callers can use same API
+          const headers = new Headers();
+          try{ xhr.getAllResponseHeaders().trim().split(/\r?\n/).forEach(line=>{ const idx = line.indexOf(':'); if(idx>0){ headers.append(line.slice(0,idx).trim(), line.slice(idx+1).trim()) } }) }catch(e){}
+          const res = new Response(xhr.response, { status: xhr.status, statusText: xhr.statusText, headers })
+          resolve(res)
+        } else {
+          reject(new Error('Upload failed: ' + xhr.status))
+        }
+      }
+      xhr.onerror = function(){ reject(new Error('Network error')) }
+      xhr.send(formData)
+    })
+  }
+
+  document.getElementById('merge_clear').addEventListener('click', () => { files = []; renderList(); fileInput.value = ''; document.getElementById('merge_files_hint').textContent = 'No files selected'; });
+
+  // Floating add button opens file picker
+  if(addFab){ addFab.addEventListener('click', ()=> { fileInput._append = true; fileInput.click() }) }
+
+  // allow drag/drop files onto the list area
+  list.addEventListener('dragover', e=>{ e.preventDefault(); list.classList.add('drag-over') })
+  list.addEventListener('dragleave', e=>{ list.classList.remove('drag-over') })
+  list.addEventListener('drop', e=>{
+    e.preventDefault(); list.classList.remove('drag-over')
+    const dtFiles = Array.from(e.dataTransfer.files || []).filter(f=>f.type === 'application/pdf')
+    if(dtFiles.length){ files = files.concat(dtFiles); renderList(); const hint = document.getElementById('merge_files_hint'); const total = files.reduce((s,f)=>s+(f.size||0),0); hint.textContent = files.length ? `${files.length} files • ${window.pdfpro.formatBytes(total)}` : 'No files selected' }
+  })
+})();
+</script>
+{% endblock %}

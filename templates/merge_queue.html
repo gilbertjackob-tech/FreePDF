@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero py-4 mb-3">
+  <div class="container text-center">
+    <h1 class="h3 fw-bold">Merge Queue</h1>
+    <p class="lead mb-3">Queued merge jobs and history (local).</p>
+  </div>
+</section>
+
+<section class="container mb-5">
+  <div class="card p-3 shadow-sm">
+    <h6>Pending jobs</h6>
+    <ul id="queue_list" class="list-group mb-3">
+      <!-- filled by JS, local-only -->
+    </ul>
+    <div class="d-flex gap-2">
+      <button id="clear_queue" class="btn btn-sm btn-outline-danger">Clear queue</button>
+      <div class="lead mb-3">Queue is stored locally for now.</div>
+    </div>
+  </div>
+</section>
+
+<script>
+(function() {
+  let queue = JSON.parse(localStorage.getItem('merge_queue') || '[]');
+  const list = document.getElementById('queue_list');
+  function render(){ list.innerHTML=''; if(!queue || queue.length===0){ const li=document.createElement('li'); li.className='list-group-item small text-muted'; li.textContent='No pending jobs'; list.appendChild(li); return } queue.forEach((job, idx) => { const li = document.createElement('li'); li.className = 'list-group-item d-flex justify-content-between align-items-center'; li.innerHTML = `<span>Job ${idx+1} — ${job.files?.length||0} files</span><small class="text-muted">${job.when||''}</small>`; list.appendChild(li); }); }
+  render();
+  document.getElementById('clear_queue').addEventListener('click', ()=>{ if(!confirm('Clear local merge queue?')) return; queue=[]; localStorage.removeItem('merge_queue'); render(); window.pdfpro.showMessage('Queue cleared', 'info') });
+})();
+</script>
+{% endblock %}

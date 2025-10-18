@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtualenv
+.venv/
+env/
+venv/
+ENV/
+ENV.bak/
+
+# Byte-compiled / cache
+*.pyc
+*.pyo
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# IDE/editor
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Flask / app artifacts
+instance/
+*.sqlite3
+
+# Project-specific generated output / uploads / thumbs / debug
+output/
+uploads/
+thumbs/
+debug_images/
+
+# local settings and secrets
+.env
+.env.local
+.env.*.local
+secrets.json
+*.pem
+*.key
+
+# logs
+*.log
+
+# keep editor swap files out
+*~
+
+# optionally ignore the data DB if you don't want it tracked
+/data/index.db
+/data/index.json

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PDF Pro Tools</title>
+    <script>
+      // preflight: apply saved theme as early as possible to avoid FOUC
+      try{
+        var _k = 'pdfpro_darkmode';
+        var v = localStorage.getItem(_k);
+        if(v === '1'){
+          document.documentElement.setAttribute('data-theme','dark');
+          document.documentElement.classList.add('dark');
+          document.body && document.body.classList.add('dark');
+        }
+        else if(v === '0'){
+          // explicit light preference
+          document.documentElement.setAttribute('data-theme','light');
+          document.documentElement.classList.remove('dark');
+          document.body && document.body.classList.remove('dark');
+        } else {
+          // no saved preference: default to light so page background is white
+          document.documentElement.setAttribute('data-theme','light');
+          document.documentElement.classList.remove('dark');
+          document.body && document.body.classList.remove('dark');
+        }
+      }catch(e){/* ignore if localStorage blocked */}
+    </script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <!-- CSRF disabled: no meta tag emitted -->
+  </head>
+  <body>
+    <nav class="navbar navbar-expand-lg">
+      <div class="container d-flex justify-content-between align-items-center">
+        <a class="navbar-brand" href="{{ url_for('index') }}">PDF Pro Tools</a>
+        <div>
+          <button id="dark-mode-toggle" class="btn theme-toggle" title="Toggle dark mode" aria-pressed="false">🌙</button>
+        </div>
+      </div>
+    </nav>
+    <main class="container my-4">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <div class="alert alert-warning" role="alert">
+            {% for m in messages %} {{ m }} {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="text-center py-4 text-muted small">
+      <div class="lead mb-3">Built with Flask • Keep uploads secure in production</div>
+    </footer>
+    <!-- Toast root for small notifications -->
+    <div id="toast-root" class="position-fixed bottom-0 end-0 p-3" style="z-index:1080"></div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/darkmode.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/animations.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/previews.js') }}"></script>
+  </body>
+</html>
