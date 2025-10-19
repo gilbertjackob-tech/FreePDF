@@ -11,19 +11,39 @@
   <div class="row">
     <div class="col-md-7">
       <div class="card shadow-sm">
-        <div class="position-relative" style="aspect-ratio:4/3; background:#000;">
-          <video id="id_video" autoplay playsinline muted class="w-100 h-100" style="object-fit:cover;"></video>
+        <div class="position-relative camera-holder">
+          <video id="id_video" autoplay playsinline muted class="w-100 h-100 camera-video" style="object-fit:cover;"></video>
           <canvas id="id_canvas" class="d-none"></canvas>
           <div id="id_overlay" class="position-absolute top-0 start-0 w-100 h-100">
-            <div class="position-absolute top-50 start-50 translate-middle border border-light rounded" style="width:70%; height:45%; pointer-events:none;"></div>
+            <!-- manual selector (hidden until Manual crop enabled) -->
+            <div id="id_selector" class="position-absolute" style="left:15%;top:25%;width:70%;height:45%;border:2px dashed rgba(255,255,255,0.8);display:none; box-sizing:border-box; touch-action:none;">
+              <div class="selector-handle" data-dir="nw" style="position:absolute;left:-6px;top:-6px;width:12px;height:12px;background:#fff;border:1px solid #000;cursor:nwse-resize;"></div>
+              <div class="selector-handle" data-dir="ne" style="position:absolute;right:-6px;top:-6px;width:12px;height:12px;background:#fff;border:1px solid #000;cursor:nesw-resize;"></div>
+              <div class="selector-handle" data-dir="sw" style="position:absolute;left:-6px;bottom:-6px;width:12px;height:12px;background:#fff;border:1px solid #000;cursor:nesw-resize;"></div>
+              <div class="selector-handle" data-dir="se" style="position:absolute;right:-6px;bottom:-6px;width:12px;height:12px;background:#fff;border:1px solid #000;cursor:nwse-resize;"></div>
+            </div>
+          </div>
+          <!-- Floating toolbar for ID capture -->
+          <div class="camera-toolbar" role="toolbar" aria-label="ID camera controls">
+            <button id="id_capture_btn" class="btn btn-primary btn-icon" title="Capture"><i class="bi bi-camera-fill"></i></button>
+            <button id="id_flip" class="btn btn-outline-secondary btn-icon" title="Flip"><i class="bi bi-arrow-repeat"></i></button>
+            <button id="id_camera_toggle" class="btn btn-outline-secondary btn-icon" title="Camera On/Off"><i class="bi bi-camera-video-off-fill"></i></button>
+            <button id="id_upload_btn" class="btn btn-warning btn-icon" title="Upload"><i class="bi bi-upload"></i></button>
           </div>
         </div>
         <div class="card-body d-flex gap-2 justify-content-center flex-wrap">
-          <button id="id_capture_btn" class="btn btn-primary">Capture ID</button>
-          <button id="id_flip" class="btn btn-outline-secondary">Flip Camera</button>
-          <button id="id_upload_btn" class="btn btn-outline-warning">Upload Image(s)</button>
           <input type="file" id="id_file_input" accept="image/*" style="display:none" multiple>
-          <button id="id_finish" class="btn btn-outline-success">Finish</button>
+          <div class="form-check d-flex align-items-center ms-2">
+            <input class="form-check-input" type="checkbox" id="id_manual_crop">
+            <label class="form-check-label ms-2" for="id_manual_crop">Manual crop</label>
+          </div>
+          <div class="d-flex align-items-center ms-2">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="id_orientation_toggle">
+              <label class="form-check-label ms-2" for="id_orientation_toggle">Landscape</label>
+            </div>
+          </div>
+          <button id="id_finish" class="btn btn-success" title="Finish"><i class="bi bi-check2-circle"></i></button>
         </div>
       </div>
     </div>
@@ -34,7 +54,7 @@
         <div id="id_captures" class="d-flex flex-column gap-2" style="max-height:60vh; overflow:auto;"></div>
 
         <div class="mt-3 d-flex gap-2 flex-wrap">
-          <button id="id_retake" class="btn btn-outline-secondary btn-sm">Retake</button>
+          <button id="id_retake" class="btn btn-outline-secondary btn-sm" aria-label="Retake"><i class="bi bi-arrow-counterclockwise"></i></button>
         </div>
 
         <div id="id_progress_wrap" style="display:none; margin-top:5px;">
@@ -54,6 +74,9 @@
   const flipBtn = document.getElementById('id_flip');
   const uploadBtn = document.getElementById('id_upload_btn');
   const fileInput = document.getElementById('id_file_input');
+  const cameraToggleBtn = document.getElementById('id_camera_toggle');
+  const manualCropCheckbox = document.getElementById('id_manual_crop');
+  const selector = document.getElementById('id_selector');
   const finishBtn = document.getElementById('id_finish');
   const galleryDiv = document.getElementById('id_captures');
   const statusDiv = document.getElementById('id_progress_text');
@@ -62,7 +85,10 @@
 
   let stream = null;
   let usingFrontCamera = false;
-  let capturedIDs = [];
+  // sequential capture state: store front/back separately
+  let frontBlob = null;
+  let backBlob = null;
+  let captureStage = 'front'; // front -> back -> done
 
   async function startCamera(){
     if(stream){ stream.getTracks().forEach(t=>t.stop()); }
@@ -79,58 +105,182 @@
   flipBtn.addEventListener('click', ()=>{ usingFrontCamera = !usingFrontCamera; startCamera(); });
 
   uploadBtn.addEventListener('click', ()=>fileInput.click());
+  // helper to add thumbnail with crop button
+  function addThumbnailForSlot(blob, slot){
+    const url = URL.createObjectURL(blob);
+    const container = document.createElement('div'); container.className='d-flex align-items-center gap-2';
+    const img = document.createElement('img'); img.src = url; img.className='img-fluid border'; img.style.maxWidth='200px';
+    const info = document.createElement('div');
+    const label = document.createElement('div'); label.textContent = slot === 'front' ? 'Front' : 'Back';
+  const cropBtn = document.createElement('button'); cropBtn.className='btn btn-sm btn-outline-primary'; cropBtn.innerHTML='<i class="bi bi-crop"></i>';
+    info.appendChild(label); info.appendChild(cropBtn);
+    container.appendChild(img); container.appendChild(info);
+    galleryDiv.appendChild(container);
+
+    cropBtn.addEventListener('click', ()=>{
+      openCropper(blob, async (croppedBlob)=>{
+        if(croppedBlob){
+          // replace blob for slot and update image
+          if(slot==='front') frontBlob = croppedBlob; else backBlob = croppedBlob;
+          img.src = URL.createObjectURL(croppedBlob);
+        }
+      });
+    });
+  }
+
+  // wire uploaded files into the sequential front/back slots
   fileInput.addEventListener('change', e=>{
     for(const f of e.target.files){
-      capturedIDs.push(f);
-      const url = URL.createObjectURL(f);
-      const thumb = document.createElement('img'); thumb.src=url; thumb.className='img-fluid border';
-      galleryDiv.appendChild(thumb);
+      if(captureStage === 'front'){
+        frontBlob = f; addThumbnailForSlot(f,'front'); captureStage = 'back'; captureBtn.textContent='Capture Back'; statusDiv.textContent='Front uploaded — capture or upload back.';
+      } else if(captureStage === 'back'){
+        backBlob = f; addThumbnailForSlot(f,'back'); captureStage = 'done'; captureBtn.textContent='Captured'; captureBtn.disabled=true; statusDiv.textContent='Both sides ready.';
+      }
     }
     e.target.value='';
   });
 
   async function captureID(){
     canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-    canvas.getContext('2d').drawImage(video,0,0);
+    const ctx = canvas.getContext('2d');
+    // draw current video frame directly (avoid extra mirroring that can confuse processing)
+    ctx.drawImage(video,0,0);
+    // if manual crop enabled and selector visible, crop to selector region scaled to video size
+    if(manualCropCheckbox && manualCropCheckbox.checked && selector && selector.style.display!=='none'){
+      const sel = selector.getBoundingClientRect();
+      const videoRect = video.getBoundingClientRect();
+      // compute selector relative to video pixels
+      const sx = Math.max(0, (sel.left - videoRect.left) / videoRect.width * canvas.width);
+      const sy = Math.max(0, (sel.top - videoRect.top) / videoRect.height * canvas.height);
+      const sw = Math.max(1, (sel.width / videoRect.width) * canvas.width);
+      const sh = Math.max(1, (sel.height / videoRect.height) * canvas.height);
+      const cropCanvas = document.createElement('canvas');
+      cropCanvas.width = sw; cropCanvas.height = sh;
+      cropCanvas.getContext('2d').drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+      return new Promise(resolve=>cropCanvas.toBlob(resolve,'image/jpeg',0.9));
+    }
+    // use JPEG like original implementation for smaller size and consistent processing
     return new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.9));
   }
+  // initialize capture button for sequential flow
+  captureBtn.innerHTML = '<i class="bi bi-camera-fill"></i> <small class="ms-1">Front</small>';
 
   captureBtn.addEventListener('click', async ()=>{
     if(!stream){ alert("Camera not available. Use upload."); return; }
     try{
       const blob = await captureID();
-      const fd = new FormData();
-      fd.append('file', blob, 'id.jpg');
-      const res = await fetch('/scan-id', { method:'POST', body: fd });
-      if(!res.ok){ alert("Error processing ID"); return; }
-      const processedBlob = await res.blob();
-      capturedIDs.push(processedBlob);
-      const url = URL.createObjectURL(processedBlob);
-      const thumb = document.createElement('img'); thumb.src=url; thumb.className='img-fluid border';
-      galleryDiv.appendChild(thumb);
+      const slot = captureStage === 'front' ? 'front' : 'back';
+      if(slot === 'front'){
+        frontBlob = blob;
+        addThumbnailForSlot(blob,'front');
+        captureStage = 'back';
+  captureBtn.innerHTML = '<i class="bi bi-camera-fill"></i> <small class="ms-1">Back</small>';
+        statusDiv.textContent = 'Front captured — please capture the back.';
+      } else {
+        backBlob = blob;
+        addThumbnailForSlot(blob,'back');
+        captureStage = 'done';
+  captureBtn.innerHTML = '<i class="bi bi-check2-circle"></i>';
+        captureBtn.disabled = true;
+        statusDiv.textContent = 'Both sides captured. Click Finish.';
+      }
     } catch(e){ console.error(e); alert("Error capturing ID"); }
   });
 
+  // Manual crop UI: show/hide selector and enable drag/resize
+  function enableSelector(enabled){
+    if(!selector) return;
+    selector.style.display = enabled ? 'block' : 'none';
+    if(!enabled) return;
+    // basic drag
+    let dragging = false, dragStart = null, startRect = null;
+    selector.addEventListener('pointerdown', (ev)=>{
+      ev.preventDefault(); selector.setPointerCapture(ev.pointerId);
+      const rect = selector.getBoundingClientRect();
+      const isHandle = ev.target.classList.contains('selector-handle');
+      dragging = true; dragStart = {x:ev.clientX,y:ev.clientY,handle:isHandle?ev.target.dataset.dir:null};
+      startRect = rect;
+    });
+    window.addEventListener('pointermove', (ev)=>{
+      if(!dragging) return; ev.preventDefault();
+      const dx = ev.clientX - dragStart.x, dy = ev.clientY - dragStart.y;
+      const parent = selector.parentElement.getBoundingClientRect();
+      let left = startRect.left - parent.left, top = startRect.top - parent.top, width = startRect.width, height = startRect.height;
+      if(!dragStart.handle){ // move
+        left = Math.max(0, Math.min(parent.width - width, left + dx));
+        top = Math.max(0, Math.min(parent.height - height, top + dy));
+      } else {
+        // resize based on corner
+        const dir = dragStart.handle;
+        if(dir.includes('n')){ top = Math.max(0, Math.min(parent.height - height + dy, top + dy)); height = Math.max(20, startRect.height - dy); }
+        if(dir.includes('s')){ height = Math.max(20, startRect.height + dy); }
+        if(dir.includes('w')){ left = Math.max(0, Math.min(parent.width - width + dx, left + dx)); width = Math.max(20, startRect.width - dx); }
+        if(dir.includes('e')){ width = Math.max(20, startRect.width + dx); }
+      }
+      selector.style.left = (left / parent.width * 100) + '%';
+      selector.style.top = (top / parent.height * 100) + '%';
+      selector.style.width = (width / parent.width * 100) + '%';
+      selector.style.height = (height / parent.height * 100) + '%';
+    });
+    window.addEventListener('pointerup', (ev)=>{ dragging=false; dragStart=null; startRect=null; });
+  }
+
+  if(manualCropCheckbox){
+    manualCropCheckbox.addEventListener('change', e=>{ enableSelector(e.target.checked); });
+    // initialize selector (but hidden)
+    enableSelector(false);
+  }
+
   finishBtn.addEventListener('click', async ()=>{
-    if(!capturedIDs.length){ alert("No ID images captured"); return; }
+    if(!frontBlob || !backBlob){ alert('Please capture both front and back of the ID.'); return; }
     const fd = new FormData();
-    capturedIDs.forEach((b,i)=> fd.append('file', b, `id${i+1}.jpg`));
+    fd.append('front', frontBlob, 'front.jpg');
+    fd.append('back', backBlob, 'back.jpg');
     wrap.style.display='block'; fill.style.width='0%'; statusDiv.textContent='Uploading...';
     try{
       const res = await uploadWithProgress('/scan-id', fd, (loaded,total)=>{
         const pct = total ? Math.round((loaded/total)*100) : 40;
         fill.style.width=pct+'%'; statusDiv.textContent='Uploading... '+pct+'%';
       });
+      if(!res.ok){
+        const txt = await res.text();
+        console.error('Server error', res.status, txt);
+        alert('Server error while processing ID');
+        statusDiv.textContent='Error';
+        return;
+      }
       fill.style.width='100%'; statusDiv.textContent='Processing...';
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       window.open(url,'_blank');
-    } catch(e){ console.error(e); statusDiv.textContent='Error'; }
+    } catch(e){ console.error(e); statusDiv.textContent='Error'; alert('Upload failed'); }
     finally{ setTimeout(()=>{ wrap.style.display='none'; fill.style.width='0%'; },800); }
   });
 
   document.getElementById('id_retake').addEventListener('click', ()=>{
-    capturedIDs=[]; galleryDiv.innerHTML=''; statusDiv.textContent='Ready';
+    frontBlob = null; backBlob = null; captureStage='front'; captureBtn.disabled=false;
+  captureBtn.innerHTML = '<i class="bi bi-camera-fill"></i> <small class="ms-1">Front</small>'; galleryDiv.innerHTML=''; statusDiv.textContent='Ready';
+  });
+
+  // Camera toggle: start/stop stream
+  function updateIdCameraToggleUI(){
+    if(stream){
+      cameraToggleBtn.innerHTML = '<i class="bi bi-camera-video-fill"></i>';
+      cameraToggleBtn.classList.remove('btn-success');
+      cameraToggleBtn.classList.add('btn-outline-secondary');
+      cameraToggleBtn.title = 'Turn Camera Off';
+    } else {
+      cameraToggleBtn.innerHTML = '<i class="bi bi-camera-video-off-fill"></i>';
+      cameraToggleBtn.classList.remove('btn-outline-secondary');
+      cameraToggleBtn.classList.add('btn-success');
+      cameraToggleBtn.title = 'Turn Camera On';
+    }
+  }
+  cameraToggleBtn.addEventListener('click', ()=>{
+    if(stream){
+      // stop camera
+      stream.getTracks().forEach(t=>t.stop()); stream=null; updateIdCameraToggleUI(); statusDiv.textContent='Camera off';
+    } else { startCamera(); updateIdCameraToggleUI(); }
   });
 
   if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia){ startCamera(); } 
@@ -152,5 +302,57 @@
     });
   }
 })();
+</script>
+
+<!-- Cropper modal (simple canvas-based) -->
+<div id="cropper_modal" class="position-fixed top-0 start-0 w-100 h-100 d-none" style="background:rgba(0,0,0,0.7);align-items:center;justify-content:center;z-index:2000;">
+  <div style="background:#fff;padding:12px;max-width:95%;max-height:90%;overflow:auto;">
+    <h6>Crop Image</h6>
+    <div style="position:relative;">
+      <canvas id="cropper_canvas" style="max-width:100%;border:1px solid #ccc;"></canvas>
+      <div style="margin-top:8px;text-align:right;">
+        <button id="cropper_cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
+        <button id="cropper_ok" class="btn btn-sm btn-primary">Crop</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// simple cropper implementation
+function openCropper(blob, cb){
+  const modal = document.getElementById('cropper_modal');
+  const canvas = document.getElementById('cropper_canvas');
+  const ctx = canvas.getContext('2d');
+  const img = new Image();
+  img.onload = ()=>{
+    canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+    ctx.drawImage(img,0,0);
+    // allow user to draw rect
+    let start=null, rect=null, dragging=false;
+    function draw(){
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(img,0,0);
+      if(rect){ ctx.strokeStyle='red'; ctx.lineWidth=3; ctx.strokeRect(rect.x,rect.y,rect.w,rect.h); }
+    }
+    function down(e){ e.preventDefault(); start={x:e.offsetX,y:e.offsetY}; dragging=true; }
+    function move(e){ if(!dragging) return; const x=e.offsetX, y=e.offsetY; rect={x:Math.min(start.x,x), y:Math.min(start.y,y), w:Math.abs(x-start.x), h:Math.abs(y-start.y)}; draw(); }
+    function up(e){ dragging=false; }
+    canvas.addEventListener('pointerdown', down);
+    canvas.addEventListener('pointermove', move);
+    canvas.addEventListener('pointerup', up);
+    modal.classList.remove('d-none');
+
+    document.getElementById('cropper_cancel').onclick = ()=>{ cleanup(); cb(null); };
+    document.getElementById('cropper_ok').onclick = ()=>{
+      if(!rect){ cleanup(); cb(null); return; }
+      const c = document.createElement('canvas'); c.width = rect.w; c.height = rect.h; c.getContext('2d').drawImage(img, rect.x, rect.y, rect.w, rect.h, 0,0, rect.w, rect.h);
+      c.toBlob((b)=>{ cleanup(); cb(b); }, 'image/jpeg', 0.9);
+    };
+
+    function cleanup(){ modal.classList.add('d-none'); canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move); canvas.removeEventListener('pointerup', up); }
+  };
+  img.src = URL.createObjectURL(blob);
+}
 </script>
 {% endblock %}

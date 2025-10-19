@@ -1139,22 +1139,6 @@ def pdf_to_docx(in_path: str, out_path: str, ocr_lang: str = 'eng', *,
             pass
     return {'backend': 'none', 'per_page': [], 'images': []}
 
-def edit_pdf(in_path: str, out_path: str, rotate: int = 0):
-    # very small edit: if rotate != 0 and PyPDF2 available, rotate pages
-    if PyPDF2 is None:
-        shutil.copyfile(in_path, out_path); return
-    reader = PyPDF2.PdfReader(in_path)
-    writer = PyPDF2.PdfWriter()
-    for p in reader.pages:
-        try:
-            if rotate:
-                p.rotate_clockwise(rotate)
-        except Exception:
-            pass
-        writer.add_page(p)
-    with open(out_path, 'wb') as fh:
-        writer.write(fh)
-
 def reorder_pages(in_path: str, order: List[int], out_path: str, rotate: int = 0, delete_list: List[int] = None):
     if PyPDF2 is None:
         shutil.copyfile(in_path, out_path); return

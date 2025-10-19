@@ -7,8 +7,9 @@ python-docx>=0.8.11
 pytest>=7.0
 python-magic; platform_system != 'Windows'
 opencv-python; platform_system == 'Windows'
-flask-wtf
-numpy
-gunicorn
+flask-wtf>=1.2.2
+numpy>=2.2.6
+gunicorn>=23.0.0
 # Optional dev tools
-ipython
+ipython>=9.6.0
+pikepdf>=9.11.0

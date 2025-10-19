@@ -19,11 +19,9 @@ from utils.pdf_utils import (
     merge_pdfs_bytes,
     pdf_to_docx,
     images_to_pdf_util,
-    edit_pdf,
     reorder_pages,
     generate_thumbnails,
 )
-from utils.pdf_edit_utils import edit_pdf
 from utils.sql_indexer import SQLIndexer
 try:
     import magic
@@ -542,118 +540,7 @@ def pdf_to_docx():
     return render_template('pdf_to_docx.html')
 
 
-#------------------------ 5. PDF Edit Page------------------------
-
-#------------------------5.1 Upload for Edit Endpoint------------------------
-@app.route('/upload-for-edit', methods=['POST'])
-def upload_for_edit():
-    f = request.files.get('pdf')
-
-    # --- Validate upload ---
-    if not f or f.filename == '':
-        return {'error': 'no file'}, 400
-
-    filename = secure_filename(f.filename)
-
-    # --- Extension check ---
-    if not allowed_ext(filename) or filename.rsplit('.', 1)[-1].lower() != 'pdf':
-        return {'error': 'pdf required'}, 400
-
-    # --- Save with unique name ---
-    unique = f"{uuid.uuid4().hex}_{filename}"
-    path = os.path.join(app.config['UPLOAD_FOLDER'], unique)
-    f.save(path)
-
-    # --- MIME check for safety ---
-    if detect_mime(path) != 'application/pdf':
-        os.remove(path)
-        return {'error': 'invalid pdf'}, 400
-
-    # --- Index for later operations (merge/edit) ---
-    try:
-        indexer.set(unique, unique)
-    except Exception:
-        logger.exception('Failed to index uploaded file')
-
-    return {'file_id': unique}, 200
-
-
-
-# Rerun/force-OCR endpoint removed per user request (simplified no-OCR workflow)
-
-#------------------------ 5.2 PDF Main Edit Page------------------------
-from PyPDF2 import PdfReader, PdfWriter
-
-@app.route('/edit', methods=['GET', 'POST'])
-def edit():
-    """Edit PDF: rotate, reorder, delete pages."""
-    if request.method == 'POST':
-        f = request.files.get('pdf')
-        file_id = request.form.get('file_id')
-        rotate = int(request.form.get('rotate', '0'))
-        pages_order = request.form.get('pages')   # "2,1,3"
-        delete_list = request.form.get('delete')  # "2,4"
-
-        # --- Determine input PDF path ---
-        if f and f.filename.strip():
-            filename = secure_filename(f.filename)
-            if not filename.lower().endswith('.pdf'):
-                flash('Only PDF files are allowed')
-                return redirect(request.url)
-            unique = f"{uuid.uuid4().hex}_{filename}"
-            in_path = os.path.join(app.config['UPLOAD_FOLDER'], unique)
-            f.save(in_path)
-            if detect_mime(in_path) != 'application/pdf':
-                os.remove(in_path)
-                flash('Uploaded file is not a valid PDF')
-                return redirect(request.url)
-            indexer.set(unique, unique)
-        elif file_id:
-            mapped = indexer.get(file_id)
-            if not mapped:
-                flash('Referenced file not found')
-                return redirect(request.url)
-            in_path = os.path.join(app.config['UPLOAD_FOLDER'], mapped)
-            if not os.path.exists(in_path):
-                flash('Referenced file not found on disk')
-                return redirect(request.url)
-        else:
-            flash('No file uploaded or file_id provided')
-            return redirect(request.url)
-
-        out_path = os.path.join(app.config['OUTPUT_FOLDER'], f'edited_{uuid.uuid4().hex}.pdf')
-
-        # --- Prepare delete and reorder lists for edit_pdf ---
-        del_list = [int(x)-1 for x in delete_list.split(',') if x.strip()] if delete_list else None
-        reorder_list = [int(x)-1 for x in pages_order.split(',') if x.strip()] if pages_order else None
-
-        # --- Call the helper ---
-        try:
-            edit_pdf(
-                input_path=in_path,
-                output_path=out_path,
-                rotate=rotate,
-                delete_list=del_list,
-                reorder_list=reorder_list
-            )
-        except Exception as e:
-            logger.exception('Edit operation failed')
-            flash(f'Edit failed: {str(e)}')
-            return redirect(request.url)
-        finally:
-            # cleanup uploaded file if needed
-            if f and f.filename.strip():
-                try:
-                    os.remove(in_path)
-                except Exception:
-                    logger.exception('Failed to remove temp PDF')
-
-        return send_file(out_path, as_attachment=True)
-
-    return render_template('edit.html')
-
-
-#------------------------ 5.3 PDF Edit Pages Generate Thumbnails Part------------------------
+#------------------------ 5.3 PDF Pages Generate Thumbnails Part------------------------
 @app.route('/thumbnails', methods=['POST'])
 def thumbnails():
     """Generate page thumbnails for a PDF (uploaded or existing by file_id)."""
@@ -687,10 +574,30 @@ def thumbnails():
     thumbs = generate_thumbnails(in_path, thumb_dir)
 
     # --- Prepare URLs for frontend ---
-    urls = [url_for('serve_thumb', file=os.path.basename(thumb_dir), name=os.path.basename(p)) 
-            for p in thumbs]
+    urls = []
+    for p in thumbs:
+        try:
+            name = os.path.basename(p)
+            folder = os.path.basename(thumb_dir)
+            # use external URLs to avoid client ambiguity when behind a proxy/tunnel
+            u = url_for('serve_thumb', file=folder, name=name, _external=True)
+            urls.append(u)
+            # log for debugging: whether file exists and its size
+            if not os.path.exists(p):
+                logger.warning('Thumbnail expected but missing: %s', p)
+            else:
+                try:
+                    sz = os.path.getsize(p)
+                    logger.debug('Thumbnail generated: %s (%d bytes)', p, sz)
+                except Exception:
+                    logger.debug('Thumbnail generated: %s', p)
+        except Exception:
+            logger.exception('Failed to prepare thumbnail URL for %s', p)
 
     return {'file_id': os.path.basename(in_path), 'thumbs': urls}
+
+
+
 
 
 #------------------------ 5.4 PDF Edit Pages Show Thumbnails Endpoint------------------------
@@ -698,8 +605,14 @@ def thumbnails():
 def serve_thumb(file, name):
     path = os.path.join(THUMB_FOLDER, file, name)
     if not os.path.exists(path):
+        logger.warning('serve_thumb: requested thumb not found: %s', path)
         return ('Not found', 404)
-    return send_file(path, mimetype='image/jpeg')
+    try:
+        # rely on send_file to set appropriate headers; ensure we return an image mimetype
+        return send_file(path, mimetype='image/jpeg')
+    except Exception:
+        logger.exception('serve_thumb: failed to send file %s', path)
+        return ('Server error', 500)
 
 #------------------------ 5.5 All PDF Edits Merge Queue Page------------------------
 @app.route('/merge-queue')
@@ -850,10 +763,23 @@ def scan_id():
                 cnts, _ = cv2.findContours(edged.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
                 cnts = sorted(cnts, key=cv2.contourArea, reverse=True)[:5]
                 screenCnt = None
+                img_area = img.shape[0] * img.shape[1]
                 for c in cnts:
                     peri = cv2.arcLength(c, True)
                     approx = cv2.approxPolyDP(c, 0.02*peri, True)
-                    if len(approx)==4:
+                    if len(approx) == 4:
+                        # Validate contour by area and aspect ratio to avoid bad warps
+                        cnt_area = cv2.contourArea(approx)
+                        if cnt_area < 0.005 * img_area or cnt_area > 0.95 * img_area:
+                            logger.debug('Ignoring approx contour by area: %s (img_area=%s)', cnt_area, img_area)
+                            continue
+                        # compute bounding rect aspect ratio
+                        x,y,w,h = cv2.boundingRect(approx)
+                        ar = float(w)/float(h) if h>0 else 0
+                        # ID cards typically have aspect ratio ~1.5-1.8 (landscape) or ~0.6-0.7 (portrait)
+                        if not (0.5 <= ar <= 2.5):
+                            logger.debug('Ignoring approx contour by aspect ratio: %s', ar)
+                            continue
                         screenCnt = approx
                         break
 
@@ -879,6 +805,19 @@ def scan_id():
 
                 if screenCnt is not None:
                     warped = four_point_transform(img, screenCnt.reshape(4,2))
+                    # sanity check: if warped is too small or nearly uniform color, fallback to original
+                    try:
+                        import numpy as _np
+                        if warped is None or warped.size == 0:
+                            warped = img
+                        else:
+                            # check variance; if very low variance it's likely a bad warp
+                            if _np.var(warped) < 10:
+                                logger.warning('Warped image has very low variance; falling back to original')
+                                warped = img
+                    except Exception:
+                        # if any check fails, keep warped as-is to avoid crashing
+                        pass
                 else:
                     h,w = img.shape[:2]; max_dim=1600
                     if max(h,w)>max_dim:
@@ -890,7 +829,9 @@ def scan_id():
                 cv2.imwrite(out_path, warped, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
                 temp_to_cleanup.append(out_path)
                 return out_path
-            except Exception:
+            except Exception as e:
+                # Log the exception so server logs show what failed during processing
+                logger.exception('process_blob failed while processing %s', tmp_in)
                 return tmp_in
         else:
             return tmp_in
@@ -935,7 +876,7 @@ def scan_id():
         if font: draw.text((tx,ty),labels[i],fill=(0,0,0),font=font)
         else: draw.text((tx,ty),labels[i],fill=(0,0,0))
 
-    out_pdf = os.path.join(app.config['OUTPUT_FOLDER'], f'idscan_a4_{uuid.uuid4().hex}.pdf')
+    out_pdf = os.path.join(app.config['OUTPUT_FOLDER'], f'id_A4.pdf')
     canvas.save(out_pdf,'PDF',resolution=DPI)
     cleanup_later(temp_to_cleanup+[out_pdf])
     return send_file(out_pdf, as_attachment=True)

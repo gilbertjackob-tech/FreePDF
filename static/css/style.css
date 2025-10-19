@@ -180,7 +180,7 @@ body,h1,h2,h3,h4,h5,h6,p,li,span,label,input,textarea,select,a{color:var(--text)
 
 /* Overlay, camera and crop helpers */
 .modal-overlay{position:fixed;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;background:var(--overlay-bg);z-index:9999}
-.camera-holder{position:relative;width:90%;max-width:420px;aspect-ratio:3/4;background:var(--camera-holder-bg)}
+.camera-holder{position:relative;width:100%;max-width:560px;aspect-ratio:210/297;/* A4 portrait by default */background:var(--camera-holder-bg);max-height:75vh;overflow:hidden;padding-bottom:56px;margin:0 auto}
 .crop-rect{position:absolute;border:2px dashed var(--crop-border-color);pointer-events:none;display:none}
 .crop-rect.overlay-show{display:block}
 .scan-preview-img{width:100%;height:auto;display:block}
@@ -189,6 +189,24 @@ body,h1,h2,h3,h4,h5,h6,p,li,span,label,input,textarea,select,a{color:var(--text)
 .camera-video{width:100%;height:100%;object-fit:cover;display:block}
 .camera-capture-btn{position:absolute;bottom:12px;left:50%;transform:translateX(-50%)}
 .camera-overlay{display:flex;align-items:center;justify-content:center}
+.camera-overlay video{width:100%;height:100%;object-fit:cover}
+
+/* Camera toolbar and controls (icon-only buttons) */
+.camera-toolbar{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;padding:6px 8px;background:transparent;z-index:1200}
+.camera-toolbar .btn-icon{width:42px;height:42px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;padding:6px;font-size:16px}
+.camera-toolbar .btn-icon.small{width:36px;height:36px;font-size:14px}
+
+/* If viewport is narrow, move toolbar below the camera (to avoid overlapping) */
+@media (max-width:768px){
+    .camera-holder{padding-bottom:0;aspect-ratio:210/297;max-width:100%;}
+    .camera-toolbar{position:static;transform:none;margin-top:10px;bottom:auto;left:auto;justify-content:center}
+}
+
+/* Ensure controls wrap neatly and remain tappable on small devices */
+@media (max-width:520px){
+    .camera-toolbar{gap:8px}
+    .camera-toolbar .btn-icon{width:40px;height:40px}
+}
 .upload-card{width:220px}
 .file-icon{width:56px;height:70px;background:linear-gradient(180deg, color-mix(in srgb, var(--text) 3%, transparent), color-mix(in srgb, var(--text) 1%, transparent));border-radius:8px;margin-right:10px;display:flex;align-items:center;justify-content:center;font-weight:600;color:var(--muted)}
 .upload-progress{height:8px}
