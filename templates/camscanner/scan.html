@@ -253,11 +253,34 @@
       const blob = await capturePage();
       const fd = new FormData();
       fd.append('file', blob, 'page.jpg');
-      const res = await fetch('/scan-perspective', { method:'POST', body: fd });
-      if(!res.ok){ statusDiv.innerText="Error"; return; }
-  const processedBlob = await res.blob();
-  capturedPages.push(processedBlob);
-  renderGallery();
+      const res = await fetch('/scan-perspective', { method:'POST', body: fd, credentials: 'same-origin' });
+      if(!res.ok){
+        const ct = res.headers.get('content-type') || '';
+        let bodyText = '';
+        try{
+          if(ct.includes('application/json')){
+            bodyText = JSON.stringify(await res.json());
+          } else {
+            bodyText = await res.text();
+          }
+        }catch(err){ bodyText = '[unable to read response body]'; }
+        console.error('scan-perspective failed', res.status, bodyText);
+        statusDiv.innerText = 'Error: ' + (bodyText ? (bodyText.length>200 ? bodyText.slice(0,200)+'...' : bodyText) : 'Server error');
+        alert('Scan failed: ' + (bodyText || ('HTTP '+res.status)));
+        return;
+      }
+      const respCt = res.headers.get('content-type') || '';
+      if(respCt.includes('application/json')){
+        // unexpected JSON (likely an error) — show it for debugging
+        const j = await res.json();
+        console.error('scan-perspective returned JSON', j);
+        statusDiv.innerText = 'Error: server returned JSON';
+        alert('Scan failed: ' + JSON.stringify(j));
+        return;
+      }
+      const processedBlob = await res.blob();
+      capturedPages.push(processedBlob);
+      renderGallery();
       statusDiv.innerText="Ready";
     } catch(e){ console.error(e); statusDiv.innerText="Error"; }
   });

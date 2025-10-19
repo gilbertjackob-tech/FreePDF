@@ -257,9 +257,11 @@
         fill.style.width=pct+'%'; statusDiv.textContent='Uploading... '+pct+'%';
       });
       if(!res.ok){
-        const txt = await res.text();
-        console.error('Server error', res.status, txt);
-        alert('Server error while processing ID');
+        const ct = res.headers.get('content-type')||'';
+        let body = '';
+        try{ body = ct.includes('application/json') ? JSON.stringify(await res.json()) : await res.text(); }catch(e){ body='[unable to read body]'; }
+        console.error('Server error', res.status, body);
+        alert('Server error while processing ID: ' + (body || ('HTTP '+res.status)));
         statusDiv.textContent='Error';
         return;
       }
