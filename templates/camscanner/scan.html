@@ -33,7 +33,11 @@
                 <label class="form-check-label ms-2" for="orientation_toggle">Landscape</label>
               </div>
             </div>
-            <input type="file" id="file_input" accept="image/*" style="display:none" multiple>
+            <!-- file input fallback for mobile devices (capture attribute requests camera on compatible phones) -->
+            <input type="file" id="file_input" accept="image/*" capture="environment" style="display:none" multiple>
+            <div id="mobile_fallback_msg" class="text-center text-muted small mt-2" style="display:none">
+              Camera not available. Use the Upload button to pick images or open this page in Safari (iOS) with HTTPS.
+            </div>
             <div class="input-group ms-2" style="width:160px;">
               <span class="input-group-text">Margin</span>
               <input id="margin_px" type="number" class="form-control" value="10" min="0" step="1">
@@ -88,13 +92,33 @@
   async function startCamera() {
     if(stream){ stream.getTracks().forEach(t=>t.stop()); }
     cameraOn = true; updateCameraToggleUI();
+    // Try with facingMode hint first (better for rear/front selection). If that fails (some iOS/Safari), try a simpler constraint.
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: usingFrontCamera?"user":"environment" } });
       video.srcObject = stream;
       statusDiv.innerText = "Ready";
+      document.getElementById('mobile_fallback_msg').style.display = 'none';
+      return;
     } catch(e){
-      console.warn("Camera not available", e);
-      statusDiv.innerText = "Camera not available. Use upload.";
+      console.warn("Primary camera request failed, retrying with simpler constraints", e);
+    }
+
+    // Second attempt without facingMode (some browsers reject facingMode on insecure contexts or older engines)
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      statusDiv.innerText = "Ready";
+      document.getElementById('mobile_fallback_msg').style.display = 'none';
+      return;
+    } catch(e){
+      console.warn("Fallback camera request failed", e);
+      // Provide a helpful hint for iOS users
+      if(/Safari/.test(navigator.userAgent) && !window.isSecureContext){
+        statusDiv.innerText = "Camera requires secure context (HTTPS) - open in Safari via HTTPS";
+      } else {
+        statusDiv.innerText = "Camera not available. Use upload.";
+      }
+      document.getElementById('mobile_fallback_msg').style.display = 'block';
     }
   }
 

@@ -32,7 +32,11 @@
           </div>
         </div>
         <div class="card-body d-flex gap-2 justify-content-center flex-wrap">
-          <input type="file" id="id_file_input" accept="image/*" style="display:none" multiple>
+          <!-- file input fallback for mobile devices -->
+          <input type="file" id="id_file_input" accept="image/*" capture="environment" style="display:none" multiple>
+          <div id="id_mobile_fallback_msg" class="text-center text-muted small mt-2" style="display:none">
+            Camera not available. Use Upload or open this page in Safari with HTTPS.
+          </div>
           <div class="form-check d-flex align-items-center ms-2">
             <input class="form-check-input" type="checkbox" id="id_manual_crop">
             <label class="form-check-label ms-2" for="id_manual_crop">Manual crop</label>
@@ -92,13 +96,22 @@
 
   async function startCamera(){
     if(stream){ stream.getTracks().forEach(t=>t.stop()); }
+    // try facingMode first, then fallback to simple video constraint for older browsers/iOS
     try{
       stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode: usingFrontCamera?"user":"environment" } });
-      video.srcObject = stream;
-      statusDiv.textContent = "Ready";
+      video.srcObject = stream; statusDiv.textContent = "Ready"; document.getElementById('id_mobile_fallback_msg').style.display='none'; return;
+    } catch(e){ console.warn('Primary getUserMedia failed', e); }
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({ video:true });
+      video.srcObject = stream; statusDiv.textContent = "Ready"; document.getElementById('id_mobile_fallback_msg').style.display='none'; return;
     } catch(e){
-      console.warn("Camera unavailable", e);
-      statusDiv.textContent = "Camera unavailable. Use upload.";
+      console.warn('Fallback getUserMedia failed', e);
+      if(/Safari/.test(navigator.userAgent) && !window.isSecureContext){
+        statusDiv.textContent = "Camera requires secure context (HTTPS) - open in Safari via HTTPS";
+      } else {
+        statusDiv.textContent = "Camera unavailable. Use upload.";
+      }
+      document.getElementById('id_mobile_fallback_msg').style.display='block';
     }
   }
 
