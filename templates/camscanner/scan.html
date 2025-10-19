@@ -22,6 +22,7 @@
               <button id="shutter_btn" class="btn btn-primary btn-icon" title="Capture"><i class="bi bi-camera-fill"></i></button>
               <button id="flip_btn" class="btn btn-outline-secondary btn-icon" title="Flip"><i class="bi bi-arrow-repeat"></i></button>
               <button id="camera_toggle_btn" class="btn btn-outline-secondary btn-icon" title="Camera On/Off"><i class="bi bi-camera-video-off-fill"></i></button>
+              <button id="request_perm_btn" class="btn btn-outline-info btn-icon" title="Request Camera Permission"><i class="bi bi-question-circle"></i></button>
               <button id="upload_btn" class="btn btn-warning btn-icon" title="Upload"><i class="bi bi-upload"></i></button>
               <button id="done_btn" class="btn btn-success btn-icon" title="Finish"><i class="bi bi-check2-circle"></i></button>
             </div>
@@ -298,6 +299,31 @@
 
   if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia){ startCamera(); } 
   else { statusDiv.innerText="Camera unsupported. Use upload."; }
+
+  // Request permission button - helps trigger camera prompt for testing
+  const requestPermBtn = document.getElementById('request_perm_btn');
+  async function requestCameraPermission(){
+    // Prefer Permissions API to query state, then call getUserMedia to prompt
+    try{
+      if(navigator.permissions && navigator.permissions.query){
+        const p = await navigator.permissions.query({ name: 'camera' });
+        if(p.state === 'granted') { statusDiv.innerText='Camera permission already granted'; return; }
+        // Attempt getUserMedia to force prompt
+      }
+    }catch(e){ /* ignore */ }
+    try{
+      const s = await navigator.mediaDevices.getUserMedia({ video:true });
+      statusDiv.innerText='Permission granted (test)';
+      // immediately stop tracks to avoid keeping camera active during test
+      s.getTracks().forEach(t=>t.stop());
+      // attempt to start camera with our usual flow
+      startCamera();
+    }catch(err){
+      console.warn('Permission request failed', err);
+      statusDiv.innerText='Permission denied or unavailable';
+    }
+  }
+  if(requestPermBtn) requestPermBtn.addEventListener('click', requestCameraPermission);
 
   function uploadWithProgress(url, formData, onProgress){
     return new Promise((resolve,reject)=>{

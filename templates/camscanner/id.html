@@ -29,6 +29,7 @@
             <button id="id_flip" class="btn btn-outline-secondary btn-icon" title="Flip"><i class="bi bi-arrow-repeat"></i></button>
             <button id="id_camera_toggle" class="btn btn-outline-secondary btn-icon" title="Camera On/Off"><i class="bi bi-camera-video-off-fill"></i></button>
             <button id="id_upload_btn" class="btn btn-warning btn-icon" title="Upload"><i class="bi bi-upload"></i></button>
+            <button id="id_request_perm" class="btn btn-outline-info btn-icon" title="Request Camera Permission"><i class="bi bi-question-circle"></i></button>
           </div>
         </div>
         <div class="card-body d-flex gap-2 justify-content-center flex-wrap">
@@ -298,6 +299,24 @@
 
   if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia){ startCamera(); } 
   else { statusDiv.textContent="Camera unsupported. Use upload."; }
+
+  // Request permission button for testing
+  const idRequestBtn = document.getElementById('id_request_perm');
+  async function requestIdCameraPermission(){
+    try{
+      if(navigator.permissions && navigator.permissions.query){
+        const p = await navigator.permissions.query({ name: 'camera' });
+        if(p.state === 'granted') { statusDiv.textContent='Camera permission already granted'; return; }
+      }
+    }catch(e){ }
+    try{
+      const s = await navigator.mediaDevices.getUserMedia({ video:true });
+      statusDiv.textContent='Permission granted (test)';
+      s.getTracks().forEach(t=>t.stop());
+      startCamera();
+    }catch(err){ console.warn('Permission request failed', err); statusDiv.textContent='Permission denied or unavailable'; }
+  }
+  if(idRequestBtn) idRequestBtn.addEventListener('click', requestIdCameraPermission);
 
   function uploadWithProgress(url, formData, onProgress){
     return new Promise((resolve,reject)=>{
