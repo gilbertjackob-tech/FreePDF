@@ -198,14 +198,17 @@ body,h1,h2,h3,h4,h5,h6,p,li,span,label,input,textarea,select,a{color:var(--text)
 
 /* If viewport is narrow, move toolbar below the camera (to avoid overlapping) */
 @media (max-width:768px){
-    .camera-holder{padding-bottom:0;aspect-ratio:210/297;max-width:100%;}
-    .camera-toolbar{position:static;transform:none;margin-top:10px;bottom:auto;left:auto;justify-content:center}
+    /* On small screens keep camera area full width but reserve space for toolbar (safe-area aware) */
+    .camera-holder{padding-bottom:calc(72px + env(safe-area-inset-bottom, 12px));aspect-ratio:210/297;max-width:100%;}
+    /* fix toolbar to bottom so it's always visible above iPhone home indicator */
+    .camera-toolbar{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom, 12px));transform:none;margin:0;justify-content:center;display:flex;padding:8px 10px;background:rgba(0,0,0,0.32);backdrop-filter:blur(6px);border-radius:12px;z-index:1400}
 }
 
 /* Ensure controls wrap neatly and remain tappable on small devices */
 @media (max-width:520px){
-    .camera-toolbar{gap:8px}
-    .camera-toolbar .btn-icon{width:40px;height:40px}
+    .camera-toolbar{gap:10px}
+    .camera-toolbar .btn-icon{width:48px;height:48px;border-radius:12px;font-size:18px}
+    .camera-toolbar .btn-icon.small{width:44px;height:44px}
 }
 .upload-card{width:220px}
 .file-icon{width:56px;height:70px;background:linear-gradient(180deg, color-mix(in srgb, var(--text) 3%, transparent), color-mix(in srgb, var(--text) 1%, transparent));border-radius:8px;margin-right:10px;display:flex;align-items:center;justify-content:center;font-weight:600;color:var(--muted)}
