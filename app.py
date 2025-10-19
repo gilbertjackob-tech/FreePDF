@@ -104,6 +104,32 @@ def inject_csrf_token():
     except Exception:
         return dict(csrf_token=None)
 
+#------------------------ Cleanup Old Files Thread ------------------------
+import os, time, threading
+
+# Cleanup function
+def cleanup_old_files(interval_sec=60, max_age_sec=300):
+    """Delete files older than max_age_sec every interval_sec seconds"""
+    def cleaner():
+        while True:
+            now = time.time()
+            for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER]:
+                for f in os.listdir(folder):
+                    path = os.path.join(folder, f)
+                    if os.path.isfile(path) and os.path.getmtime(path) < now - max_age_sec:
+                        try:
+                            os.remove(path)
+                            print(f"Deleted old file: {path}")
+                        except Exception as e:
+                            print(f"Failed to delete {path}: {e}")
+            time.sleep(interval_sec)
+    thread = threading.Thread(target=cleaner, daemon=True)
+    thread.start()
+
+# Start cleanup thread when app starts
+cleanup_old_files()
+
+
 #------------------------ Routes ------------------------
 #------------------------ -------------------------------
 

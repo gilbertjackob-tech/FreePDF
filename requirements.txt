@@ -8,6 +8,7 @@ pytest>=7.0
 python-magic; platform_system != 'Windows'
 opencv-python; platform_system == 'Windows'
 flask-wtf
-
+numpy
+gunicorn
 # Optional dev tools
 ipython
