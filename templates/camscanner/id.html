@@ -3,7 +3,7 @@
 <section class="hero py-4 mb-3">
   <div class="container text-center">
     <h1 class="h3 fw-bold">ID Capture</h1>
-    <p class="lead mb-3">Follow the overlay and capture both sides of the ID. The pro flow will validate quality.</p>
+    <p class="lead mb-3">Follow the overlay to capture both sides of the ID. Use camera or upload images. Quality checks included.</p>
   </div>
 </section>
 
@@ -12,15 +12,18 @@
     <div class="col-md-7">
       <div class="card shadow-sm">
         <div class="position-relative" style="aspect-ratio:4/3; background:#000;">
-          <video id="id_video" autoplay playsinline class="w-100 h-100" style="object-fit:cover"></video>
+          <video id="id_video" autoplay playsinline muted class="w-100 h-100" style="object-fit:cover;"></video>
+          <canvas id="id_canvas" class="d-none"></canvas>
           <div id="id_overlay" class="position-absolute top-0 start-0 w-100 h-100">
-            <!-- simple centered frame -->
             <div class="position-absolute top-50 start-50 translate-middle border border-light rounded" style="width:70%; height:45%; pointer-events:none;"></div>
           </div>
         </div>
-        <div class="card-body d-flex gap-2 justify-content-center">
+        <div class="card-body d-flex gap-2 justify-content-center flex-wrap">
           <button id="id_capture_btn" class="btn btn-primary">Capture ID</button>
           <button id="id_flip" class="btn btn-outline-secondary">Flip Camera</button>
+          <button id="id_upload_btn" class="btn btn-outline-warning">Upload Image(s)</button>
+          <input type="file" id="id_file_input" accept="image/*" style="display:none" multiple>
+          <button id="id_finish" class="btn btn-outline-success">Finish</button>
         </div>
       </div>
     </div>
@@ -28,10 +31,15 @@
     <div class="col-md-5">
       <div class="card shadow-sm p-3">
         <h6>Captured</h6>
-        <div id="id_captures" class="d-flex flex-column gap-2"></div>
-        <div class="mt-3 d-flex gap-2">
+        <div id="id_captures" class="d-flex flex-column gap-2" style="max-height:60vh; overflow:auto;"></div>
+
+        <div class="mt-3 d-flex gap-2 flex-wrap">
           <button id="id_retake" class="btn btn-outline-secondary btn-sm">Retake</button>
-          <button id="id_finish" class="btn btn-primary btn-sm">Finish</button>
+        </div>
+
+        <div id="id_progress_wrap" style="display:none; margin-top:5px;">
+          <div id="id_progress_fill" style="width:0%; height:10px; background:#28a745;"></div>
+          <div id="id_progress_text" style="font-size:0.9em; margin-top:2px;">Uploading...</div>
         </div>
       </div>
     </div>
@@ -39,18 +47,110 @@
 </section>
 
 <script>
-  // Wiring placeholder for camscanner ID flow
-  (function(){
-    const video = document.getElementById('id_video');
-    const callbacks = {
-      onQuality: q => { /* show quality */ },
-      onCapture: blobUrl => {
-        const d = document.createElement('div');
-        d.innerHTML = `<img src="${blobUrl}" class="img-fluid border"/>`;
-        document.getElementById('id_captures').appendChild(d);
-      }
-    };
-    window.idScannerInit && window.idScannerInit(video, callbacks);
-  })();
+(async function(){
+  const video = document.getElementById('id_video');
+  const canvas = document.getElementById('id_canvas');
+  const captureBtn = document.getElementById('id_capture_btn');
+  const flipBtn = document.getElementById('id_flip');
+  const uploadBtn = document.getElementById('id_upload_btn');
+  const fileInput = document.getElementById('id_file_input');
+  const finishBtn = document.getElementById('id_finish');
+  const galleryDiv = document.getElementById('id_captures');
+  const statusDiv = document.getElementById('id_progress_text');
+  const wrap = document.getElementById('id_progress_wrap');
+  const fill = document.getElementById('id_progress_fill');
+
+  let stream = null;
+  let usingFrontCamera = false;
+  let capturedIDs = [];
+
+  async function startCamera(){
+    if(stream){ stream.getTracks().forEach(t=>t.stop()); }
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode: usingFrontCamera?"user":"environment" } });
+      video.srcObject = stream;
+      statusDiv.textContent = "Ready";
+    } catch(e){
+      console.warn("Camera unavailable", e);
+      statusDiv.textContent = "Camera unavailable. Use upload.";
+    }
+  }
+
+  flipBtn.addEventListener('click', ()=>{ usingFrontCamera = !usingFrontCamera; startCamera(); });
+
+  uploadBtn.addEventListener('click', ()=>fileInput.click());
+  fileInput.addEventListener('change', e=>{
+    for(const f of e.target.files){
+      capturedIDs.push(f);
+      const url = URL.createObjectURL(f);
+      const thumb = document.createElement('img'); thumb.src=url; thumb.className='img-fluid border';
+      galleryDiv.appendChild(thumb);
+    }
+    e.target.value='';
+  });
+
+  async function captureID(){
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video,0,0);
+    return new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.9));
+  }
+
+  captureBtn.addEventListener('click', async ()=>{
+    if(!stream){ alert("Camera not available. Use upload."); return; }
+    try{
+      const blob = await captureID();
+      const fd = new FormData();
+      fd.append('file', blob, 'id.jpg');
+      const res = await fetch('/scan-id', { method:'POST', body: fd });
+      if(!res.ok){ alert("Error processing ID"); return; }
+      const processedBlob = await res.blob();
+      capturedIDs.push(processedBlob);
+      const url = URL.createObjectURL(processedBlob);
+      const thumb = document.createElement('img'); thumb.src=url; thumb.className='img-fluid border';
+      galleryDiv.appendChild(thumb);
+    } catch(e){ console.error(e); alert("Error capturing ID"); }
+  });
+
+  finishBtn.addEventListener('click', async ()=>{
+    if(!capturedIDs.length){ alert("No ID images captured"); return; }
+    const fd = new FormData();
+    capturedIDs.forEach((b,i)=> fd.append('file', b, `id${i+1}.jpg`));
+    wrap.style.display='block'; fill.style.width='0%'; statusDiv.textContent='Uploading...';
+    try{
+      const res = await uploadWithProgress('/scan-id', fd, (loaded,total)=>{
+        const pct = total ? Math.round((loaded/total)*100) : 40;
+        fill.style.width=pct+'%'; statusDiv.textContent='Uploading... '+pct+'%';
+      });
+      fill.style.width='100%'; statusDiv.textContent='Processing...';
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url,'_blank');
+    } catch(e){ console.error(e); statusDiv.textContent='Error'; }
+    finally{ setTimeout(()=>{ wrap.style.display='none'; fill.style.width='0%'; },800); }
+  });
+
+  document.getElementById('id_retake').addEventListener('click', ()=>{
+    capturedIDs=[]; galleryDiv.innerHTML=''; statusDiv.textContent='Ready';
+  });
+
+  if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia){ startCamera(); } 
+  else { statusDiv.textContent="Camera unsupported. Use upload."; }
+
+  function uploadWithProgress(url, formData, onProgress){
+    return new Promise((resolve,reject)=>{
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      xhr.responseType='blob';
+      xhr.upload.onprogress = e=>{ if(onProgress) onProgress(e.loaded,e.total); };
+      xhr.onload = ()=>{ 
+        if(xhr.status>=200 && xhr.status<300){ 
+          resolve(new Response(xhr.response,{status:xhr.status,statusText:xhr.statusText}));
+        } else reject(new Error('Upload failed: '+xhr.status));
+      };
+      xhr.onerror = ()=>reject(new Error('Network error'));
+      xhr.send(formData);
+    });
+  }
+})();
 </script>
 {% endblock %}

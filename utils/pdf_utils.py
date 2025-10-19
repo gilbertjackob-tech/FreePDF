@@ -10,6 +10,15 @@ import io
 import re
 from collections import Counter
 from typing import List, Tuple
+try:
+    from PIL import Image
+except Exception:
+    Image = None
+
+try:
+    import PyPDF2
+except Exception:
+    PyPDF2 = None
 
 
 def _sanitize_for_xml(s):
@@ -108,17 +117,6 @@ def preprocess_image_for_ocr(pil_image):
             return bw.convert('L')
         except Exception:
             return pil_image
-
-try:
-    from PIL import Image
-except Exception:
-    Image = None
-
-try:
-    import PyPDF2
-except Exception:
-    PyPDF2 = None
-
 
 def extract_text_from_pdf(in_path: str, ocr_enabled: bool = True, ocr_lang: str = 'eng', forced_ocr_pages: List[int] = None) -> Tuple[List[str], str, List[str]]:
     """
@@ -426,21 +424,67 @@ def merge_pdfs(paths: List[str], out_path: str):
         writer.write(fh)
     logger.info('merge_pdfs: page-by-page merge completed in %.2fs', time.time() - start)
 
-def images_to_pdf(image_paths: List[str], out_path: str):
+    # Basic validation: ensure output looks like a PDF (helps detect silent failures)
+    try:
+        with open(out_path, 'rb') as fh:
+            sig = fh.read(4)
+            if not sig.startswith(b'%PDF'):
+                raise RuntimeError('merged file does not start with %PDF header')
+    except Exception:
+        # If validation fails, remove the bad file to avoid returning a corrupt artifact
+        try:
+            os.remove(out_path)
+        except Exception:
+            pass
+        raise
+
+
+def images_to_pdf_util(image_paths: List[str], out_path: str, margin_mm: float = 10):
     if Image is None:
-        # cannot convert, create an empty PDF file
-        open(out_path, 'wb').close(); return
+        open(out_path, 'wb').close()
+        return
+
     imgs = []
     for p in image_paths:
         try:
-            im = Image.open(p).convert('RGB')
-            imgs.append(im)
+            img = Image.open(p).convert('RGB')
+            imgs.append(img)
         except Exception:
             continue
+
     if not imgs:
-        open(out_path, 'wb').close(); return
-    first, rest = imgs[0], imgs[1:]
+        open(out_path, 'wb').close()
+        return
+
+    # A4 at 300 DPI
+    DPI = 300
+    A4_W_IN, A4_H_IN = 8.27, 11.69  # inches
+    a4_w = int(A4_W_IN * DPI)
+    a4_h = int(A4_H_IN * DPI)
+
+    # margin in pixels
+    margin_px = int((margin_mm / 25.4) * DPI)  # mm -> inches -> pixels
+
+    pdf_pages = []
+    for img in imgs:
+        # Resize image to fit inside A4 with margin, keeping aspect ratio
+        w, h = img.size
+        max_w = a4_w - 2 * margin_px
+        max_h = a4_h - 2 * margin_px
+        scale = min(max_w / w, max_h / h)
+        new_w, new_h = int(w * scale), int(h * scale)
+        img_resized = img.resize((new_w, new_h), Image.LANCZOS)
+
+        # Paste onto A4 white background
+        canvas = Image.new('RGB', (a4_w, a4_h), (255, 255, 255))
+        px = (a4_w - new_w) // 2
+        py = (a4_h - new_h) // 2
+        canvas.paste(img_resized, (px, py))
+        pdf_pages.append(canvas)
+
+    first, rest = pdf_pages[0], pdf_pages[1:]
     first.save(out_path, save_all=True, append_images=rest)
+
 
 def pdf_to_docx(in_path: str, out_path: str, ocr_lang: str = 'eng', *,
                 fragment_threshold: int = 8,
@@ -1215,6 +1259,10 @@ def merge_pdfs_bytes(paths: List[str]) -> tuple:
                 out_pdf.save(out_buf)
             data = out_buf.getvalue()
             elapsed = time.time() - start
+            # sanity check: ensure bytes look like a PDF
+            if not data or not data.startswith(b'%PDF'):
+                logger.warning('merge_pdfs_bytes: pikepdf produced non-PDF data, falling back')
+                raise RuntimeError('pikepdf produced invalid PDF bytes')
             logger.info('merge_pdfs_bytes: pikepdf merge completed in %.2fs', elapsed)
             return data, 'pikepdf', elapsed
         except Exception:
@@ -1240,6 +1288,9 @@ def merge_pdfs_bytes(paths: List[str]) -> tuple:
             merger.close()
             data = out_buf.getvalue()
             elapsed = time.time() - start
+            if not data or not data.startswith(b'%PDF'):
+                logger.warning('merge_pdfs_bytes: PdfMerger produced non-PDF data, falling back')
+                raise RuntimeError('PdfMerger produced invalid PDF bytes')
             logger.info('merge_pdfs_bytes: PdfMerger completed in %.2fs', elapsed)
             return data, 'pdfmerger', elapsed
         except Exception:
@@ -1261,6 +1312,9 @@ def merge_pdfs_bytes(paths: List[str]) -> tuple:
         writer.write(out_buf)
         data = out_buf.getvalue()
         elapsed = time.time() - start
+        if not data or not data.startswith(b'%PDF'):
+            logger.warning('merge_pdfs_bytes: page-by-page merge produced non-PDF data')
+            raise RuntimeError('page-by-page merge produced invalid PDF bytes')
         logger.info('merge_pdfs_bytes: page-by-page merge completed in %.2fs', elapsed)
         return data, 'pypdf2-pageby', elapsed
     except Exception:

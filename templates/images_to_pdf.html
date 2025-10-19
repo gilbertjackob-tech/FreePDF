@@ -3,22 +3,40 @@
 <section class="hero py-4 mb-3">
   <div class="container text-center">
     <h1 class="h3 fw-bold">Images → PDF</h1>
-    <p class="lead mb-3">Upload images or take photos and combine them into a PDF.</p>
+    <p class="lead mb-3">Upload images or take photos and combine them into a PDF. You can add custom margins if needed.</p>
   </div>
 </section>
 
 <section class="container mb-5">
   <div class="row">
+    <!-- Upload & Margin Controls -->
     <div class="col-md-6-preview">
       <div class="card shadow-sm p-3">
         <label class="form-label">Select images</label>
-  <input type="file" id="images_input" accept="image/*" multiple class="form-control" aria-label="Select images">
-  <div id="images_files_hint" class="file-hint">No files selected</div>
-  <div id="images_preview" class="d-flex flex-wrap gap-2 mt-3"></div>
+        <input type="file" id="images_input" accept="image/*" multiple class="form-control" aria-label="Select images">
+        <div id="images_files_hint" class="file-hint">No files selected</div>
+        <div id="images_preview" class="d-flex flex-wrap gap-2 mt-3"></div>
+
+        <!-- Margin Controls -->
+        <div class="mt-3">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" value="" id="custom_margin_check">
+            <label class="form-check-label" for="custom_margin_check">Add Custom Margin</label>
+          </div>
+          <div id="margin_controls" class="mt-2" style="display:none;">
+            <label for="margin_input" class="form-label">Margin (mm)</label>
+            <input type="number" id="margin_input" class="form-control" value="10" min="0" max="50">
+            <div class="form-text">
+              Suggested: Small = 5mm, Medium = 10mm, Large = 20mm
+            </div>
+          </div>
+        </div>
+
         <div class="mt-3 d-flex gap-2">
           <button id="images_to_pdf" class="btn btn-primary">Create PDF</button>
           <button id="images_clear" class="btn btn-outline-secondary">Clear</button>
         </div>
+
         <div id="images_progress_wrap" style="display:none" class="mt-3">
           <div class="merge-progress-bar"><div id="images_progress_fill" class="merge-progress-fill" style="width:0%"></div></div>
           <div class="small text-muted mt-1" id="images_progress_text">Preparing...</div>
@@ -26,6 +44,7 @@
       </div>
     </div>
 
+    <!-- Preview Panel -->
     <div class="col-md-6-preview">
       <div class="card shadow-sm p-3">
         <h6>Preview</h6>
@@ -41,7 +60,7 @@ document.getElementById('images_input').addEventListener('change', e => {
   const preview = document.getElementById('images_preview');
   preview.innerHTML = '';
   let total = 0;
-  files.forEach((f, idx) => {
+  files.forEach((f) => {
     total += f.size || 0;
     const url = URL.createObjectURL(f);
     const img = document.createElement('img');
@@ -52,40 +71,93 @@ document.getElementById('images_input').addEventListener('change', e => {
   });
   window._images_files = files;
   const hint = document.getElementById('images_files_hint');
-  hint.textContent = files.length ? `${files.length} files • ${window.pdfpro.formatBytes(total)}` : 'No files selected';
+  hint.textContent = files.length ? `${files.length} files • ${window.pdfpro?.formatBytes?.(total) || ''}` : 'No files selected';
 });
 
-document.getElementById('images_to_pdf').addEventListener('click', async e => {
+// Toggle custom margin input
+const marginCheck = document.getElementById('custom_margin_check');
+const marginControls = document.getElementById('margin_controls');
+marginCheck.addEventListener('change', () => {
+  marginControls.style.display = marginCheck.checked ? 'block' : 'none';
+});
+
+document.getElementById('images_to_pdf').addEventListener('click', async () => {
   const files = window._images_files || [];
-  if(files.length === 0){ window.pdfpro.showMessage('Select images first', 'error'); return; }
+  if(!files.length){ window.pdfpro?.showMessage?.('Select images first', 'error'); return; }
+
   const fd = new FormData();
-  files.forEach((f,i)=>fd.append('images', f));
-  const btn = document.getElementById('images_to_pdf');
-  try{
-    const wrap = document.getElementById('images_progress_wrap'); const fill = document.getElementById('images_progress_fill'); const text = document.getElementById('images_progress_text');
-    wrap.style.display='block'; fill.style.width='0%'; text.textContent='Uploading...'
-    const res = await uploadWithProgress('/images-to-pdf', fd, (loaded,total)=>{ if(total){ const pct=Math.round((loaded/total)*100); fill.style.width=pct+'%'; text.textContent=`Uploading... ${pct}%`} else { fill.style.width='40%'; text.textContent='Uploading...' } })
-    fill.style.width='100%'; text.textContent='Processing...'
-    const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'images.pdf'; document.body.appendChild(a); a.click(); a.remove();
-  }catch(err){ console.error(err); }
-  finally{ setTimeout(()=>{ try{ document.getElementById('images_progress_wrap').style.display='none'; document.getElementById('images_progress_fill').style.width='0%'}catch(e){} },800) }
+  files.forEach(f => fd.append('images', f));
+
+  // Append margin if custom margin enabled
+  if(marginCheck.checked){
+    const marginVal = parseInt(document.getElementById('margin_input').value) || 10;
+    fd.append('margin_mm', marginVal);
+  }
+
+  const wrap = document.getElementById('images_progress_wrap');
+  const fill = document.getElementById('images_progress_fill');
+  const text = document.getElementById('images_progress_text');
+
+  wrap.style.display = 'block';
+  fill.style.width = '0%';
+  text.textContent = 'Uploading...';
+
+  try {
+    const res = await uploadWithProgress('/images-to-pdf', fd, (loaded, total) => {
+      const pct = total ? Math.round((loaded/total)*100) : 40;
+      fill.style.width = pct + '%';
+      text.textContent = `Uploading... ${pct}%`;
+    });
+    fill.style.width = '100%';
+    text.textContent = 'Processing...';
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'images.pdf';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch(err) { console.error(err); }
+  finally {
+    setTimeout(() => {
+      wrap.style.display = 'none';
+      fill.style.width = '0%';
+    }, 800);
+  }
 });
 
-// helper reused from other templates
+document.getElementById('images_clear').addEventListener('click', () => {
+  try{
+    const inp = document.getElementById('images_input');
+    inp.value = null;
+    window._images_files = [];
+    document.getElementById('images_preview').innerHTML = '';
+    document.getElementById('images_files_hint').textContent = 'No files selected';
+    document.getElementById('images_preview_large').innerHTML = '';
+    marginCheck.checked = false;
+    marginControls.style.display = 'none';
+  }catch(err){ console.warn('clear images failed', err) }
+});
+
+// Upload helper with progress
 function uploadWithProgress(url, formData, onProgress){
   return new Promise((resolve,reject)=>{
-    const xhr = new XMLHttpRequest(); xhr.open('POST', url, true); xhr.responseType = 'blob';
-    xhr.upload.onprogress = function(e){ if(onProgress) onProgress(e.loaded, e.total) }
-    xhr.onload = function(){
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    xhr.responseType = 'blob';
+    xhr.upload.onprogress = e => { if(onProgress) onProgress(e.loaded, e.total); }
+    xhr.onload = () => {
       if(xhr.status>=200 && xhr.status<300){
         const headers = new Headers();
-        try{ xhr.getAllResponseHeaders().trim().split(/\r?\n/).forEach(line=>{ const idx=line.indexOf(':'); if(idx>0) headers.append(line.slice(0,idx).trim(), line.slice(idx+1).trim()) }) }catch(e){}
-        const res = new Response(xhr.response, { status: xhr.status, statusText: xhr.statusText, headers })
-        resolve(res)
-      } else reject(new Error('Upload failed: '+xhr.status))
+        try{ xhr.getAllResponseHeaders().trim().split(/\r?\n/).forEach(line=>{
+          const idx=line.indexOf(':'); if(idx>0) headers.append(line.slice(0,idx).trim(), line.slice(idx+1).trim())
+        }) }catch(e){}
+        resolve(new Response(xhr.response, { status: xhr.status, statusText: xhr.statusText, headers }));
+      } else reject(new Error('Upload failed: '+xhr.status));
     }
-    xhr.onerror = function(){ reject(new Error('Network error')) }
-    xhr.send(formData)
+    xhr.onerror = () => reject(new Error('Network error'));
+    xhr.send(formData);
   })
 }
 </script>

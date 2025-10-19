@@ -8,4 +8,4 @@ behaviour otherwise. Replace these with production-grade implementations
 when ready.
 """
 
-__all__ = ["pdf_utils", "sql_indexer"]
+__all__ = ["pdf_utils", "sql_indexer", "cv_utils", "pdf_edit_utils"]
